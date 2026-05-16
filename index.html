@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生產線排程表 (24小時日夜班-連Excel匯出版)</title>
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 20px;
+        background-color: #f4f4f9;
+        user-select: none;
+    }
+    .header-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .btn-group {
+        display: flex;
+        gap: 10px;
+    }
+    .add-btn {
+        background-color: #007BFF;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .add-btn:hover { background-color: #0056b3; }
+    
+    /* 匯出按鈕樣式 */
+    .export-btn {
+        background-color: #28a745;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .export-btn:hover { background-color: #218838; }
+
+    .reset-btn {
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .reset-btn:hover { background-color: #c82333; }
+
+    /* 表格外層容器，用嚟處理太闊嘅橫向捲動 */
+    .table-container {
+        width: 100%;
+        overflow-x: auto;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        background-color: white;
+    }
+
+    table {
+        border-collapse: collapse;
+        min-width: max-content; /* 確保表格唔會被擠壓 */
+        width: 100%;
+    }
+    tbody.line-group {
+        border-bottom: 4px solid #555;
+    }
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        text-align: center;
+        min-width: 35px;
+        height: 35px;
+    }
+    th {
+        background-color: #e0e0e0;
+        font-weight: bold;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    
+    td.input-col { vertical-align: top; padding-top: 10px; }
+    td.line-col { vertical-align: middle; text-align: center; }
+    
+    .day-label {
+        background-color: #f9f9f9;
+        font-weight: bold;
+        color: #555;
+        font-size: 0.9em;
+        white-space: nowrap;
+    }
+    
+    input[type="text"], input[type="number"], select {
+        padding: 6px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+        text-align: center;
+    }
+    .model { width: 180px; } 
+    .capa, .qty { width: 70px; }
+    .shift-mode { width: 80px; cursor: pointer; }
+    
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+
+    .prod-row {
+        height: 38px;
+        margin-bottom: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+    }
+    
+    .add-prod-btn {
+        margin-top: 10px;
+        padding: 5px 10px;
+        background-color: #17a2b8;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85em;
+        width: 100%;
+    }
+    .add-prod-btn:hover { background-color: #138496; }
+
+    /* 確認按鈕設計 */
+    .calc-btn {
+        background-color: #ffc107;
+        color: #333;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .calc-btn:hover { background-color: #e0a800; }
+
+    .del-btn {
+        background: transparent;
+        color: #dc3545;
+        border: none;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 0 4px;
+    }
+    .del-btn:hover { color: #a71d2a; }
+
+    .drag-badge {
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: grab;
+        font-weight: bold;
+        display: inline-block;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    .drag-badge:active { cursor: grabbing; }
+
+    .time-slot {
+        background-color: #fff;
+        transition: background-color 0.2s;
+    }
+    .time-slot.drag-over {
+        background-color: #f0f0f0;
+        border: 2px dashed #999;
+    }
+</style>
+</head>
+<body>
+
+<div class="header-controls">
+    <div class="btn-group">
+        <button class="add-btn" onclick="addLine()">+ 新增生產線</button>
+        <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV 檔</button>
+        <button class="reset-btn" onclick="resetAll()">⟳ 清空頁面數據</button>
+    </div>
+    <p style="color: #666; margin: 0; font-size: 1em; font-style: italic;">Powered by Mr Szeto</p>
+</div>
+
+<div class="table-container">
+    <table id="productionTable">
+        <thead>
+            <tr>
+                <th>型號</th>
+                <th>產能</th>
+                <th>數量</th>
+                <th>模式</th>
+                <th>確認</th>
+                <th>產時</th>
+                <th>生產線</th>
+                <th>日數</th>
+                <script>
+                    for(let i=0; i<24; i++) {
+                        document.write(`<th>${i}:00</th>`);
+                    }
+                </script>
+            </tr>
+        </thead>
+    </table>
+</div>
+
+<script>
+    let currentDraggedElement = null;
+    let lineCount = 0; 
+    
+    const daysName = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    const productColors = ['#4CAF50', '#2196F3', '#9C27B0', '#FF9800', '#E91E63', '#00BCD4'];
+    
+    const validDayHours = [8,9,10,11,12,13,14,15,16,17,18,19,20,21,22];
+    const validNightHours = [22,23,0,1,2,3,4,5,6,7,8];
+
+    function getTimeSlotsHTML() {
+        let slots = '';
+        for (let i = 0; i < 24; i++) {
+            slots += `<td class="time-slot" data-hour="${i}" ondragover="allowDrop(event)" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)"></td>`;
+        }
+        return slots;
+    }
+
+    function addLine() {
+        lineCount++;
+        const table = document.getElementById('productionTable');
+        const tbody = document.createElement('tbody');
+        tbody.className = 'line-group';
+        tbody.dataset.lineId = 'line_' + lineCount;
+        tbody.dataset.prodCount = '1';
+
+        const pid = `L${lineCount}_P1`;
+        const defaultColor = productColors[0];
+
+        let html = `
+            <tr>
+                <td rowspan="7" class="input-col model-cell">
+                    <div class="prod-row" data-pid="${pid}">
+                        <button class="del-btn" onclick="deleteProduct('${pid}')" title="刪除型號">✖</button>
+                        <input type="text" class="model" style="border-left: 5px solid ${defaultColor};">
+                    </div>
+                    <button class="add-prod-btn" onclick="addProduct(this)">+ 新增型號</button>
+                </td>
+                <td rowspan="7" class="input-col capa-cell">
+                    <div class="prod-row" data-pid="${pid}"><input type="number" class="capa" min="1"></div>
+                </td>
+                <td rowspan="7" class="input-col qty-cell">
+                    <div class="prod-row" data-pid="${pid}"><input type="number" class="qty" min="0"></div>
+                </td>
+                <td rowspan="7" class="input-col mode-cell">
+                    <div class="prod-row" data-pid="${pid}">
+                        <select class="shift-mode">
+                            <option value="day">白班</option>
+                            <option value="night">夜班</option>
+                        </select>
+                    </div>
+                </td>
+                <td rowspan="7" class="input-col btn-cell">
+                    <div class="prod-row" data-pid="${pid}">
+                        <button class="calc-btn" onclick="calculate(this)">確認</button>
+                    </div>
+                </td>
+                <td rowspan="7" class="input-col hours-cell">
+                    <div class="prod-row" data-pid="${pid}" id="hours_${pid}" data-color="${defaultColor}">0.0</div>
+                </td>
+                <td rowspan="7" class="line-col">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 5px;">
+                        <button class="del-btn" onclick="deleteLine(this)" title="刪除生產線">✖</button>
+                        <input type="text" value="Line ${lineCount}" class="line" style="width: 80px;">
+                    </div>
+                </td>
+                <td class="day-label">${daysName[0]}</td>
+                ${getTimeSlotsHTML()}
+            </tr>
+        `;
+        
+        for (let d = 1; d <= 6; d++) {
+            html += `
+                <tr>
+                    <td class="day-label">${daysName[d]}</td>
+                    ${getTimeSlotsHTML()}
+                </tr>
+            `;
+        }
+        tbody.innerHTML = html;
+        table.appendChild(tbody);
+    }
+
+    function addProduct(btn) {
+        const tbody = btn.closest('tbody');
+        const lineId = tbody.dataset.lineId;
+        let pCount = parseInt(tbody.dataset.prodCount) + 1;
+        tbody.dataset.prodCount = pCount;
+        
+        const pid = `${lineId}_P${pCount}`;
+        const colorIndex = (pCount - 1) % productColors.length;
+        const color = productColors[colorIndex];
+
+        const modelCell = tbody.querySelector('.model-cell');
+        const newModel = document.createElement('div');
+        newModel.className = 'prod-row';
+        newModel.dataset.pid = pid;
+        newModel.innerHTML = `
+            <button class="del-btn" onclick="deleteProduct('${pid}')" title="刪除型號">✖</button>
+            <input type="text" class="model" style="border-left: 5px solid ${color};">
+        `;
+        modelCell.insertBefore(newModel, btn);
+
+        const capaCell = tbody.querySelector('.capa-cell');
+        const newCapa = document.createElement('div');
+        newCapa.className = 'prod-row';
+        newCapa.dataset.pid = pid;
+        newCapa.innerHTML = `<input type="number" class="capa" min="1">`;
+        capaCell.appendChild(newCapa);
+
+        const qtyCell = tbody.querySelector('.qty-cell');
+        const newQty = document.createElement('div');
+        newQty.className = 'prod-row';
+        newQty.dataset.pid = pid;
+        newQty.innerHTML = `<input type="number" class="qty" min="0">`;
+        qtyCell.appendChild(newQty);
+
+        const modeCell = tbody.querySelector('.mode-cell');
+        const newMode = document.createElement('div');
+        newMode.className = 'prod-row';
+        newMode.dataset.pid = pid;
+        newMode.innerHTML = `<select class="shift-mode"><option value="day">白班</option><option value="night">夜班</option></select>`;
+        modeCell.appendChild(newMode);
+
+        const btnCell = tbody.querySelector('.btn-cell');
+        const newBtn = document.createElement('div');
+        newBtn.className = 'prod-row';
+        newBtn.dataset.pid = pid;
+        newBtn.innerHTML = `<button class="calc-btn" onclick="calculate(this)">確認</button>`;
+        btnCell.appendChild(newBtn);
+
+        const hoursCell = tbody.querySelector('.hours-cell');
+        const newHours = document.createElement('div');
+        newHours.className = 'prod-row';
+        newHours.dataset.pid = pid;
+        newHours.id = `hours_${pid}`;
+        newHours.dataset.color = color;
+        newHours.innerText = '0.0';
+        hoursCell.appendChild(newHours);
+    }
+
+    function deleteProduct(pid) {
+        if (!confirm("確定要刪除此型號嗎？")) return;
+        document.querySelectorAll(`.time-slot[data-pid="${pid}"]`).forEach(slot => {
+            slot.style.backgroundColor = '';
+            slot.removeAttribute('data-pid');
+        });
+        document.querySelectorAll(`.prod-row[data-pid="${pid}"]`).forEach(el => el.remove());
+    }
+
+    function deleteLine(btn) {
+        if (!confirm("確定要刪除整條生產線嗎？")) return;
+        const tbody = btn.closest('tbody');
+        if (tbody) tbody.remove();
+    }
+
+    function calculate(btnElement) {
+        const prodRow = btnElement.closest('.prod-row');
+        const pid = prodRow.dataset.pid;
+        const tbody = btnElement.closest('tbody');
+
+        const capaInput = tbody.querySelector(`.capa-cell .prod-row[data-pid="${pid}"] .capa`);
+        const qtyInput = tbody.querySelector(`.qty-cell .prod-row[data-pid="${pid}"] .qty`);
+        const modeSelect = tbody.querySelector(`.mode-cell .prod-row[data-pid="${pid}"] .shift-mode`);
+        const hoursDiv = tbody.querySelector(`#hours_${pid}`);
+
+        const capaValue = parseFloat(capaInput.value);
+        const qtyValue = parseFloat(qtyInput.value);
+        const shiftMode = modeSelect.value;
+        const color = hoursDiv.dataset.color;
+
+        if (!isNaN(capaValue) && !isNaN(qtyValue) && capaValue > 0) {
+            const hours = qtyValue / capaValue;
+            hoursDiv.innerHTML = `<div class="drag-badge" draggable="true" ondragstart="drag(event)" data-hours="${hours}" data-pid="${pid}" data-color="${color}" data-shift="${shiftMode}" style="background-color: ${color};">${hours.toFixed(1)}</div>`;
+        } else {
+            alert("請輸入正確的產能與數量！");
+            hoursDiv.innerHTML = "0.0";
+            const allSlotsInGroup = Array.from(tbody.querySelectorAll('.time-slot'));
+            allSlotsInGroup.forEach(slot => {
+                if (slot.dataset.pid === pid) {
+                    slot.style.backgroundColor = '';
+                    slot.removeAttribute('data-pid');
+                }
+            });
+        }
+    }
+
+    // --- 拖曳功能 ---
+    function drag(ev) {
+        currentDraggedElement = ev.target;
+        ev.dataTransfer.setData("text/plain", ev.target.innerText);
+    }
+
+    function allowDrop(ev) { ev.preventDefault(); }
+    function dragEnter(ev) { ev.target.closest('.time-slot').classList.add('drag-over'); }
+    function dragLeave(ev) { ev.target.closest('.time-slot').classList.remove('drag-over'); }
+
+    function drop(ev) {
+        ev.preventDefault();
+        const targetSlot = ev.target.closest('.time-slot');
+        if (!targetSlot) return;
+        targetSlot.classList.remove('drag-over');
+        if (!currentDraggedElement) return;
+
+        const hours = parseFloat(currentDraggedElement.getAttribute('data-hours'));
+        const pid = currentDraggedElement.getAttribute('data-pid');
+        const color = currentDraggedElement.getAttribute('data-color');
+        const shiftMode = currentDraggedElement.getAttribute('data-shift'); 
+        const blocksToFill = Math.ceil(hours);
+
+        const targetGroup = targetSlot.closest('tbody');
+        const allSlotsInGroup = Array.from(targetGroup.querySelectorAll('.time-slot'));
+
+        allSlotsInGroup.forEach(slot => {
+            if (slot.dataset.pid === pid) {
+                slot.style.backgroundColor = '';
+                slot.removeAttribute('data-pid');
+            }
+        });
+
+        const startIndex = allSlotsInGroup.indexOf(targetSlot);
+        let filledCount = 0;
+        let currentIdx = startIndex;
+
+        while (filledCount < blocksToFill && currentIdx < allSlotsInGroup.length) {
+            const slotHour = parseInt(allSlotsInGroup[currentIdx].getAttribute('data-hour'));
+            let isValidHour = false;
+
+            if (shiftMode === 'day' && validDayHours.includes(slotHour)) {
+                isValidHour = true;
+            } else if (shiftMode === 'night' && validNightHours.includes(slotHour)) {
+                isValidHour = true;
+            }
+
+            if (isValidHour) {
+                allSlotsInGroup[currentIdx].style.backgroundColor = color;
+                allSlotsInGroup[currentIdx].dataset.pid = pid;
+                filledCount++;
+            }
+            currentIdx++;
+        }
+    }
+
+    // 一鍵 F5 清空並重設頁面
+    function resetAll() {
+        if (confirm("確定要清空並還原至預設頁面嗎？所有未儲存的數據將會遺失！")) {
+            location.reload(); 
+        }
+    }
+
+    // 📥 匯出 Excel / CSV 數據核心邏輯
+    function exportToCSV() {
+        const tbodies = document.querySelectorAll('#productionTable tbody.line-group');
+        if (tbodies.length === 0) {
+            alert("目前沒有任何生產線數據可以匯出！");
+            return;
+        }
+
+        // \uFEFF 係 UTF-8 的 BOM 頭，作用係話比 Excel 聽呢個檔案有中文字，防止開出嚟變亂碼
+        let csvContent = "\uFEFF"; 
+
+        // ---------------- Part 1: 產品型號基礎清單 ----------------
+        csvContent += "=== 產品型號清單 ===\n";
+        csvContent += "生產線,型號,產能,數量,模式,計算產時(小時)\n";
+
+        tbodies.forEach(tbody => {
+            const lineInput = tbody.querySelector('input.line');
+            const lineName = lineInput ? lineInput.value : "未命名生產線";
+            const prodRows = tbody.querySelectorAll('.model-cell .prod-row');
+            
+            prodRows.forEach(row => {
+                const pid = row.dataset.pid;
+                const model = row.querySelector('input.model').value || "未命名型號";
+                const capa = tbody.querySelector(`.capa-cell .prod-row[data-pid="${pid}"] input.capa`).value || "0";
+                const qty = tbody.querySelector(`.qty-cell .prod-row[data-pid="${pid}"] input.qty`).value || "0";
+                const modeSelect = tbody.querySelector(`.mode-cell .prod-row[data-pid="${pid}"] select.shift-mode`);
+                const modeText = modeSelect ? modeSelect.options[modeSelect.selectedIndex].text : "白班";
+                
+                const hoursDiv = tbody.querySelector(`#hours_${pid}`);
+                let hoursText = "0.0";
+                if (hoursDiv && hoursDiv.querySelector('.drag-badge')) {
+                    hoursText = parseFloat(hoursDiv.querySelector('.drag-badge').dataset.hours).toFixed(1);
+                }
+
+                // 避免客戶輸入嘅名含有逗號(,)搞亂 CSV，用雙引號包裝
+                const safeLine = `"${lineName.replace(/"/g, '""')}"`;
+                const safeModel = `"${model.replace(/"/g, '""')}"`;
+
+                csvContent += `${safeLine},${safeModel},${capa},${qty},${modeText},${hoursText}\n`;
+            });
+        });
+
+        csvContent += "\n\n"; // 隔開兩組數據
+
+        // ---------------- Part 2: 七日排程矩陣時間表 ----------------
+        csvContent += "=== 七日排程時間表 (24格矩陣) ===\n";
+        csvContent += "生產線,日數,";
+        for (let i = 0; i < 24; i++) {
+            csvContent += `${i}:00,`;
+        }
+        csvContent = csvContent.slice(0, -1) + "\n"; // 移除最尾多出嚟嘅逗號
+
+        tbodies.forEach(tbody => {
+            const lineInput = tbody.querySelector('input.line');
+            const lineName = lineInput ? lineInput.value : "未命名生產線";
+            const safeLine = `"${lineName.replace(/"/g, '""')}"`;
+            
+            const rows = tbody.querySelectorAll('tr');
+            
+            rows.forEach(row => {
+                const dayLabelEl = row.querySelector('.day-label');
+                if (!dayLabelEl) return; // 確保係時間排程列
+                
+                const dayLabel = dayLabelEl.innerText;
+                let rowStr = `${safeLine},${dayLabel},`;
+
+                const timeSlots = row.querySelectorAll('.time-slot');
+                timeSlots.forEach(slot => {
+                    const pid = slot.dataset.pid;
+                    let scheduledModel = ""; // 預設空白代表冇排程
+                    
+                    if (pid) {
+                        // 透過格子上記錄嘅 pid 反查返對應嘅型號 Input 數值
+                        const modelInput = tbody.querySelector(`.model-cell .prod-row[data-pid="${pid}"] input.model`);
+                        if (modelInput) {
+                            scheduledModel = modelInput.value || "未命名型號";
+                        }
+                    }
+                    rowStr += `"${scheduledModel.replace(/"/g, '""')}",`;
+                });
+                csvContent += rowStr.slice(0, -1) + "\n";
+            });
+        });
+
+        // ---------------- 執行瀏覽器下載 ----------------
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const dateStr = new Date().toISOString().slice(0, 10); // 攞今日日期 YYYY-MM-DD
+        
+        link.href = URL.createObjectURL(blob);
+        link.download = `生產線排程表_${dateStr}.csv`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    window.onload = function() {
+        addLine();
+    };
+</script>
+</body>
+</html>
