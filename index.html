@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生產線排程表 (7日跨日版 - 優化版)</title>
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 20px;
+        background-color: #f4f4f9;
+        user-select: none;
+    }
+    .header-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .btn-group {
+        display: flex;
+        gap: 10px;
+    }
+    .add-btn {
+        background-color: #007BFF;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        transition: background-color 0.3s;
+    }
+    .add-btn:hover { background-color: #0056b3; }
+    
+    .reset-btn {
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        transition: background-color 0.3s;
+    }
+    .reset-btn:hover { background-color: #c82333; }
+
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        background-color: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    tbody.line-group {
+        border-bottom: 4px solid #555;
+    }
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        text-align: center;
+        min-width: 45px;
+        height: 35px;
+    }
+    th {
+        background-color: #e0e0e0;
+        font-weight: bold;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    /* 將輸入區分為靠上對齊 (產品相關) 及 垂直置中對齊 (生產線) */
+    td.input-col {
+        vertical-align: top;
+        padding-top: 10px;
+    }
+    td.line-col {
+        vertical-align: middle;
+        text-align: center;
+    }
+    .day-label {
+        background-color: #f9f9f9;
+        font-weight: bold;
+        color: #555;
+        font-size: 0.9em;
+        white-space: nowrap;
+    }
+    
+    /* 輸入框設定 */
+    input[type="text"], input[type="number"] {
+        padding: 6px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+        text-align: center;
+    }
+    .model { width: 220px; } 
+    .capa, .qty { width: 70px; }
+    
+    /* 隱藏 Number Input 嘅上下箭嘴 */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+        -webkit-appearance: none; 
+        margin: 0; 
+    }
+    input[type=number] {
+        -moz-appearance: textfield;
+    }
+
+    /* 多型號列嘅對齊與按鈕 */
+    .prod-row {
+        height: 38px;
+        margin-bottom: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px; /* 元素之間嘅距離 */
+    }
+    .add-prod-btn {
+        margin-top: 10px;
+        padding: 5px 10px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85em;
+        width: 100%;
+    }
+    .add-prod-btn:hover { background-color: #218838; }
+
+    /* 紅色刪除按鈕 (交叉) */
+    .del-btn {
+        background: transparent;
+        color: #dc3545;
+        border: none;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 0 4px;
+    }
+    .del-btn:hover {
+        color: #a71d2a;
+    }
+
+    /* 拖曳方塊 */
+    .drag-badge {
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: grab;
+        font-weight: bold;
+        display: inline-block;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    .drag-badge:active { cursor: grabbing; }
+
+    .time-slot {
+        background-color: #fff;
+        transition: background-color 0.2s;
+    }
+    .time-slot.drag-over {
+        background-color: #f0f0f0;
+        border: 2px dashed #999;
+    }
+</style>
+</head>
+<body>
+
+<div class="header-controls">
+    <div class="btn-group">
+        <button class="add-btn" onclick="addLine()">+ 新增生產線</button>
+        <button class="reset-btn" onclick="resetAll()">⟳ 清空頁面數值</button>
+    </div>
+    <p style="color: #666; margin: 0; font-size: 0.9em; font-style: italic;">Powered by Mr Szeto</p>
+</div>
+
+<table id="productionTable">
+    <thead>
+        <tr>
+            <th>型號</th>
+            <th>產能</th>
+            <th>數量</th>
+            <th>產時</th>
+            <th>生產線</th>
+            <th>日數</th>
+            <th>8:00</th><th>9:00</th><th>10:00</th><th>11:00</th><th>12:00</th>
+            <th>13:00</th><th>14:00</th><th>15:00</th><th>16:00</th><th>17:00</th>
+            <th>18:00</th><th>19:00</th><th>20:00</th><th>21:00</th><th>22:00</th>
+        </tr>
+    </thead>
+</table>
+
+<script>
+    let currentDraggedElement = null;
+    let lineCount = 0; 
+    
+    const daysName = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    const productColors = ['#4CAF50', '#2196F3', '#9C27B0', '#FF9800', '#E91E63', '#00BCD4'];
+
+    function getTimeSlotsHTML() {
+        let slots = '';
+        for (let i = 0; i < 15; i++) {
+            slots += `<td class="time-slot" ondragover="allowDrop(event)" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)"></td>`;
+        }
+        return slots;
+    }
+
+    // 新增一條生產線
+    function addLine() {
+        lineCount++;
+        const table = document.getElementById('productionTable');
+        const tbody = document.createElement('tbody');
+        tbody.className = 'line-group';
+        tbody.dataset.lineId = 'line_' + lineCount;
+        tbody.dataset.prodCount = '1';
+
+        const pid = `L${lineCount}_P1`;
+        const defaultColor = productColors[0];
+
+        let html = `
+            <tr>
+                <td rowspan="7" class="input-col model-cell">
+                    <div class="prod-row" data-pid="${pid}">
+                        <button class="del-btn" onclick="deleteProduct('${pid}')" title="刪除型號">✖</button>
+                        <input type="text" class="model" style="border-left: 5px solid ${defaultColor};">
+                    </div>
+                    <button class="add-prod-btn" onclick="addProduct(this)">+ 新增型號</button>
+                </td>
+                <td rowspan="7" class="input-col capa-cell">
+                    <div class="prod-row" data-pid="${pid}"><input type="number" class="capa" min="1" onkeydown="handleEnter(event, this)"></div>
+                </td>
+                <td rowspan="7" class="input-col qty-cell">
+                    <div class="prod-row" data-pid="${pid}"><input type="number" class="qty" min="0" onkeydown="handleEnter(event, this)"></div>
+                </td>
+                <td rowspan="7" class="input-col hours-cell">
+                    <div class="prod-row" data-pid="${pid}" id="hours_${pid}" data-color="${defaultColor}">0.0</div>
+                </td>
+                <td rowspan="7" class="line-col">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 5px;">
+                        <button class="del-btn" onclick="deleteLine(this)" title="刪除生產線">✖</button>
+                        <input type="text" value="Line ${lineCount}" class="line" style="width: 80px;">
+                    </div>
+                </td>
+                <td class="day-label">${daysName[0]}</td>
+                ${getTimeSlotsHTML()}
+            </tr>
+        `;
+        
+        for (let d = 1; d <= 6; d++) {
+            html += `
+                <tr>
+                    <td class="day-label">${daysName[d]}</td>
+                    ${getTimeSlotsHTML()}
+                </tr>
+            `;
+        }
+        tbody.innerHTML = html;
+        table.appendChild(tbody);
+    }
+
+    // 同一生產線新增型號
+    function addProduct(btn) {
+        const tbody = btn.closest('tbody');
+        const lineId = tbody.dataset.lineId;
+        let pCount = parseInt(tbody.dataset.prodCount) + 1;
+        tbody.dataset.prodCount = pCount;
+        
+        const pid = `${lineId}_P${pCount}`;
+        const colorIndex = (pCount - 1) % productColors.length;
+        const color = productColors[colorIndex];
+
+        // 插入型號輸入框 (包含刪除按鈕)
+        const modelCell = tbody.querySelector('.model-cell');
+        const newModel = document.createElement('div');
+        newModel.className = 'prod-row';
+        newModel.dataset.pid = pid;
+        newModel.innerHTML = `
+            <button class="del-btn" onclick="deleteProduct('${pid}')" title="刪除型號">✖</button>
+            <input type="text" class="model" style="border-left: 5px solid ${color};">
+        `;
+        modelCell.insertBefore(newModel, btn);
+
+        // 插入產能輸入框
+        const capaCell = tbody.querySelector('.capa-cell');
+        const newCapa = document.createElement('div');
+        newCapa.className = 'prod-row';
+        newCapa.dataset.pid = pid;
+        newCapa.innerHTML = `<input type="number" class="capa" min="1" onkeydown="handleEnter(event, this)">`;
+        capaCell.appendChild(newCapa);
+
+        // 插入數量輸入框
+        const qtyCell = tbody.querySelector('.qty-cell');
+        const newQty = document.createElement('div');
+        newQty.className = 'prod-row';
+        newQty.dataset.pid = pid;
+        newQty.innerHTML = `<input type="number" class="qty" min="0" onkeydown="handleEnter(event, this)">`;
+        qtyCell.appendChild(newQty);
+
+        // 插入產時顯示區
+        const hoursCell = tbody.querySelector('.hours-cell');
+        const newHours = document.createElement('div');
+        newHours.className = 'prod-row';
+        newHours.dataset.pid = pid;
+        newHours.id = `hours_${pid}`;
+        newHours.dataset.color = color;
+        newHours.innerText = '0.0';
+        hoursCell.appendChild(newHours);
+    }
+
+    // 刪除單一產品型號
+    function deleteProduct(pid) {
+        if (!confirm("確定要刪除此型號嗎？")) return;
+        
+        // 1. 清空右方時間線屬於呢個產品嘅顏色
+        document.querySelectorAll(`.time-slot[data-pid="${pid}"]`).forEach(slot => {
+            slot.style.backgroundColor = '';
+            slot.removeAttribute('data-pid');
+        });
+
+        // 2. 刪除所有相關嘅輸入列 (包含型號、產能、數量、產時)
+        document.querySelectorAll(`.prod-row[data-pid="${pid}"]`).forEach(el => {
+            el.remove();
+        });
+    }
+
+    // 刪除整條生產線
+    function deleteLine(btn) {
+        if (!confirm("確定要刪除整條生產線嗎？")) return;
+        const tbody = btn.closest('tbody');
+        if (tbody) {
+            tbody.remove();
+        }
+    }
+
+    // 監聽 Enter 鍵
+    function handleEnter(event, element) {
+        if (event.key === 'Enter') {
+            event.preventDefault(); 
+            calculate(element);
+        }
+    }
+
+    // 計算時數並生成顏色方塊
+    function calculate(element) {
+        const prodRow = element.closest('.prod-row');
+        const pid = prodRow.dataset.pid;
+        const tbody = element.closest('tbody');
+
+        const capaInput = tbody.querySelector(`.capa-cell .prod-row[data-pid="${pid}"] .capa`);
+        const qtyInput = tbody.querySelector(`.qty-cell .prod-row[data-pid="${pid}"] .qty`);
+        const hoursDiv = tbody.querySelector(`#hours_${pid}`);
+
+        const capaValue = parseFloat(capaInput.value);
+        const qtyValue = parseFloat(qtyInput.value);
+        const color = hoursDiv.dataset.color;
+
+        if (!isNaN(capaValue) && !isNaN(qtyValue) && capaValue > 0) {
+            const hours = qtyValue / capaValue;
+            hoursDiv.innerHTML = `<div class="drag-badge" draggable="true" ondragstart="drag(event)" data-hours="${hours}" data-pid="${pid}" data-color="${color}" style="background-color: ${color};">${hours.toFixed(1)}</div>`;
+        } else {
+            hoursDiv.innerHTML = "0.0";
+            const allSlotsInGroup = Array.from(tbody.querySelectorAll('.time-slot'));
+            allSlotsInGroup.forEach(slot => {
+                if (slot.dataset.pid === pid) {
+                    slot.style.backgroundColor = '';
+                    slot.removeAttribute('data-pid');
+                }
+            });
+        }
+    }
+
+    // --- 拖曳相關功能 ---
+    function drag(ev) {
+        currentDraggedElement = ev.target;
+        ev.dataTransfer.setData("text/plain", ev.target.innerText);
+    }
+
+    function allowDrop(ev) { ev.preventDefault(); }
+    function dragEnter(ev) { ev.target.closest('.time-slot').classList.add('drag-over'); }
+    function dragLeave(ev) { ev.target.closest('.time-slot').classList.remove('drag-over'); }
+
+    function drop(ev) {
+        ev.preventDefault();
+        const targetSlot = ev.target.closest('.time-slot');
+        if (!targetSlot) return;
+        targetSlot.classList.remove('drag-over');
+        if (!currentDraggedElement) return;
+
+        const hours = parseFloat(currentDraggedElement.getAttribute('data-hours'));
+        const pid = currentDraggedElement.getAttribute('data-pid');
+        const color = currentDraggedElement.getAttribute('data-color');
+        const blocksToFill = Math.ceil(hours);
+
+        const targetGroup = targetSlot.closest('tbody');
+        const allSlotsInGroup = Array.from(targetGroup.querySelectorAll('.time-slot'));
+
+        // 清空舊記錄
+        allSlotsInGroup.forEach(slot => {
+            if (slot.dataset.pid === pid) {
+                slot.style.backgroundColor = '';
+                slot.removeAttribute('data-pid');
+            }
+        });
+
+        // 重新填色
+        const startIndex = allSlotsInGroup.indexOf(targetSlot);
+        for (let i = 0; i < blocksToFill; i++) {
+            const currentIdx = startIndex + i;
+            if (currentIdx < allSlotsInGroup.length) {
+                allSlotsInGroup[currentIdx].style.backgroundColor = color;
+                allSlotsInGroup[currentIdx].dataset.pid = pid;
+            }
+        }
+    }
+
+    // 清空整個頁面所有輸入
+    function resetAll() {
+        if (!confirm("確定要清空頁面上所有輸入數值同時間線嗎？")) return;
+        
+        document.querySelectorAll('input.model, input.capa, input.qty').forEach(input => {
+            input.value = '';
+        });
+        
+        document.querySelectorAll('.hours-cell .prod-row').forEach(div => {
+            div.innerHTML = '0.0';
+        });
+
+        document.querySelectorAll('.time-slot').forEach(slot => {
+            slot.style.backgroundColor = '';
+            slot.removeAttribute('data-pid');
+        });
+    }
+
+    window.onload = function() {
+        addLine();
+    };
+
+</script>
+</body>
+</html>
